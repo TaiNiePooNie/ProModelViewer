@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pro Model Viewer v1.1.21</title>
+    <style>
+        :root { --accent: #007aff; --bg: #121212; --panel: #1e1e1e; --text: #e0e0e0; --input-bg: #2a2a2a; }
+        body { margin: 0; font-family: 'Inter', system-ui, sans-serif; display: flex; height: 100vh; background: var(--bg); color: var(--text); overflow: hidden; }
+        
+        #dashboard { width: 420px; background: var(--panel); border-right: 1px solid #333; display: flex; flex-direction: column; padding: 20px; box-sizing: border-box; box-shadow: 10px 0 30px rgba(0,0,0,0.5); z-index: 10; overflow-y: auto; flex-shrink: 0; }
+        h2, h3 { font-weight: 600; margin-top: 0; color: #fff; }
+        h3 { font-size: 0.8rem; text-transform: uppercase; color: #666; margin-bottom: 15px; border-bottom: 1px solid #333; padding-bottom: 5px; margin-top: 15px; }
+        
+        .upload-area { border: 2px dashed #444; border-radius: 12px; padding: 20px; text-align: center; cursor: pointer; background: #252525; margin-bottom: 20px; transition: 0.2s; }
+        .upload-area.dragover { border-color: var(--accent); background: rgba(0, 122, 255, 0.1); }
+        
+        #viewport-container { flex-grow: 1; position: relative; background: radial-gradient(circle at center, #2c2c2c 0%, #121212 100%); transition: 0.2s; }
+        #viewport-container.dragover { outline: 3px solid var(--accent); outline-offset: -10px; background: rgba(0, 122, 255, 0.05); }
+
+        .control-group { margin-bottom: 15px; width: 100%; box-sizing: border-box; }
+        .transform-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; width: 100%; }
+        .transform-label { font-size: 10px; font-weight: bold; width: 15px; cursor: ew-resize; color: var(--accent); user-select: none; flex-shrink: 0; }
+        
+        input[type="number"] { background: var(--input-bg); border: 1px solid #444; color: white; padding: 4px; border-radius: 4px; width: 100%; min-width: 0; font-size: 11px; box-sizing: border-box; }
+        
+        #scene-outliner { position: absolute; top: 20px; right: 20px; width: 220px; background: rgba(30,30,30,0.85); border: 1px solid #444; border-radius: 8px; backdrop-filter: blur(10px); padding: 10px; z-index: 50; }
+        #model-list { list-style: none; padding: 0; margin: 0; font-size: 12px; max-height: 150px; overflow-y: auto; }
+        #model-list li { padding: 8px; border-radius: 4px; cursor: pointer; margin-bottom: 2px; border: 1px solid transparent; display: flex; justify-content: space-between; user-select: none; }
+        #model-list li.selected { background: var(--accent); color: white; }
+
+        #inspector-window { display: none; position: absolute; top: 240px; right: 20px; width: 220px; background: rgba(30,30,30,0.85); border: 1px solid #444; border-radius: 8px; backdrop-filter: blur(10px); padding: 12px; z-index: 50; }
+        .inspect-opt { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 8px; cursor: pointer; color: #ccc; }
+
+        #anim-controller { display: none; position: absolute; bottom: 40px; right: 20px; background: rgba(30,30,30,0.9); border: 1px solid var(--accent); border-radius: 8px; padding: 12px; z-index: 60; color: white; backdrop-filter: blur(5px); min-width: 180px; }
+
+        #crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 20px; height: 20px; pointer-events: none; opacity: 0; z-index: 100; }
+        #crosshair::before, #crosshair::after { content: ''; position: absolute; background: var(--accent); }
+        #crosshair::before { top: 50%; left: 0; width: 100%; height: 2px; margin-top: -1px; }
+        #crosshair::after { left: 50%; top: 0; height: 100%; width: 2px; margin-left: -1px; }
+
+        #settings-btn { position: absolute; top: 20px; left: 20px; font-size: 38px; cursor: pointer; z-index: 20; opacity: 0.7; transition: 0.3s; }
+        #settings-menu { display: none; position: absolute; top: 80px; left: 20px; background: rgba(30,30,30,0.95); border: 1px solid #444; padding: 20px; border-radius: 8px; backdrop-filter: blur(10px); z-index: 100; min-width: 250px; }
+        .settings-section { margin-bottom: 15px; border-bottom: 1px solid #444; padding-bottom: 10px; }
+        .settings-section label { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 5px; cursor: pointer; }
+
+        .btn-primary { background: var(--accent); color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; width: 100%; font-size: 12px; }
+        #version-tag { position: absolute; bottom: 10px; left: 10px; font-size: 10px; color: #555; pointer-events: none; font-family: monospace; }
+        
+        select, input[type="range"] { width: 100%; background: #2a2a2a; border: 1px solid #444; color: white; padding: 6px; border-radius: 4px; box-sizing: border-box; }
+        #notification { display: none; position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); background: #1e1e1e; color: white; padding: 15px 25px; border-radius: 8px; border: 1px solid var(--accent); box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 200; font-size: 13px; align-items: center; gap: 10px; }
+
+        /* Instructions Overlay Styles */
+        #instructions-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; backdrop-filter: blur(4px); }
+        .instr-card { position: absolute; background: var(--panel); border: 1px solid var(--accent); border-radius: 8px; padding: 15px; width: 280px; box-shadow: 0 10px 30px rgba(0,0,0,0.8); pointer-events: none; }
+        .instr-card h4 { margin: 0 0 8px 0; color: var(--accent); font-size: 12px; text-transform: uppercase; }
+        .instr-card p { margin: 0; font-size: 12px; line-height: 1.4; color: #bbb; }
+        #close-instr { position: absolute; top: 20px; right: 20px; width: auto; background: #cc2222; z-index: 1001; }
+
+        #author-credits { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); text-align: center; width: 80%; max-width: 600px; pointer-events: none; }
+        .credit-label { color: var(--accent); font-size: 11px; font-weight: bold; display: block; margin-bottom: 4px; }
+        .disclaimer-text { color: #777; font-size: 9px; line-height: 1.2; font-style: italic; }
+    </style>
+</head>
+<body>
+
+<div id="instructions-overlay">
+    <button id="close-instr" class="btn-primary">Close Instructions (ESC)</button>
+    
+    <div class="instr-card" style="top: 100px; left: 440px;">
+        <h4>Viewport Navigation</h4>
+        <p>• <b>Right-Click + Drag:</b> Pan & Tilt camera.<br>• <b>WASD:</b> Move camera while Right-Clicking.<br>• <b>Double-Click Object:</b> Focus camera on it.</p>
+    </div>
+
+    <div class="instr-card" style="top: 200px; left: 50px;">
+        <h4>Object Transforms</h4>
+        <p>• <b>Number Fields:</b> Manual entry.<br>• <b>X/Y/Z Labels:</b> Click and drag horizontally to scrub values.</p>
+    </div>
+
+    <div class="instr-card" style="top: 20px; right: 260px;">
+        <h4>Scene Management</h4>
+        <p>• <b>Select:</b> Click model in list or viewport.<br>• <b>Delete:</b> Press [Delete] key with selection active.</p>
+    </div>
+
+    <div class="instr-card" style="bottom: 120px; left: 440px;">
+        <h4>Shortcuts</h4>
+        <p>• <b>[Shift] + Drag Scrub:</b> Precision adjustment.<br>• <b>[Ctrl] + Drag Mesh:</b> Snap to ground plane movement.</p>
+    </div>
+
+    <div id="author-credits">
+        <span class="credit-label">Author: Robin Huybrechts</span>
+        <span class="disclaimer-text">Disclaimer: This code was generated partially with the use of AI. The author is not responsible for any issues, data loss, or hardware problems caused to the end user by the use of this software. Use at your own risk.</span>
+    </div>
+</div>
+
+<div id="dashboard">
+    <h2>Asset Inspector</h2>
+    <div id="drop-zone" class="upload-area">
+        <p style="font-size: 12px;">Drag & Drop Files</p>
+        <input type="file" id="file-input" style="display:none" accept=".glb,.gltf,.obj,.fbx,.mtl" multiple>
+        <button class="btn-primary" onclick="document.getElementById('file-input').click()">Import</button>
+        <div id="status" style="font-size: 10px; margin-top:5px; color: var(--accent);">Ready</div>
+    </div>
+
+    <div class="control-group">
+        <h3>Selection Transform</h3>
+        <label style="font-size: 11px; color:#888;">Position Offset</label>
+        <div class="transform-row">
+            <span class="transform-label" data-type="position" data-axis="x">X</span><input type="number" id="pos-x" value="0" step="0.1">
+            <span class="transform-label" data-type="position" data-axis="y">Y</span><input type="number" id="pos-y" value="0" step="0.1">
+            <span class="transform-label" data-type="position" data-axis="z">Z</span><input type="number" id="pos-z" value="0" step="0.1">
+        </div>
+        <label style="font-size: 11px; color:#888;">Rotate</label>
+        <div class="transform-row">
+            <span class="transform-label" data-type="rotation" data-axis="x">X</span><input type="number" id="rot-x" value="0">
+            <span class="transform-label" data-type="rotation" data-axis="y">Y</span><input type="number" id="rot-y" value="0">
+            <span class="transform-label" data-type="rotation" data-axis="z">Z</span><input type="number" id="rot-z" value="0">
+        </div>
+        <label style="font-size: 11px; color:#888;">Scale</label>
+        <div class="transform-row">
+            <span class="transform-label" data-type="scale" data-axis="x">X</span><input type="number" id="scl-x" value="1" step="0.00001">
+            <span class="transform-label" data-type="scale" data-axis="y">Y</span><input type="number" id="scl-y" value="1" step="0.00001">
+            <span class="transform-label" data-type="scale" data-axis="z">Z</span><input type="number" id="scl-z" value="1" step="0.00001">
+        </div>
+        <div style="display: flex; gap: 5px; margin-top: 10px;">
+            <button id="uniform-scale" class="btn-primary" style="background: #333;">Uniform: ON</button>
+            <button id="re-scale-btn" class="btn-primary" style="background: #444;">Auto-Scale</button>
+        </div>
+        
+        <label style="font-size: 10px; margin-top:15px; display:block; color:#888;">Selection Transparency</label>
+        <input type="range" id="selection-opacity" min="0" max="1" step="0.05" value="1">
+    </div>
+
+    <div class="control-group">
+        <h3>Reference Geometry</h3>
+        <select id="ref-shape" style="margin-bottom: 10px;">
+            <option value="none">None</option>
+            <option value="cube">Cube (1m)</option>
+            <option value="sphere">Sphere (1m)</option>
+            <option value="plane">Floor Plane</option>
+        </select>
+    </div>
+</div>
+
+<div id="viewport-container">
+    <div id="settings-btn">⚙️</div>
+    <div id="crosshair"></div>
+    
+    <div id="scene-outliner">
+        <h3 style="margin:0 0 10px 0; border:none; font-size:10px;">Scene Outliner</h3>
+        <ul id="model-list"></ul>
+    </div>
+
+    <div id="inspector-window">
+        <h3 style="margin:0 0 10px 0; border:none; font-size:10px;">Object Inspector</h3>
+        <label class="inspect-opt"><input type="checkbox" id="toggle-wireframe"> View Wireframe</label>
+        <label class="inspect-opt"><input type="checkbox" id="toggle-skeleton"> View Skeleton</label>
+        <label class="inspect-opt"><input type="checkbox" id="toggle-unlit"> Unlit Material</label>
+        <label class="inspect-opt"><input type="checkbox" id="toggle-interpolation" checked> Linear Interpolation</label>
+    </div>
+
+    <div id="anim-controller">
+        <h3 style="margin:0 0 8px 0; border:none; font-size:10px;">Animations</h3>
+        <select id="anim-list" style="margin-bottom:8px; font-size:11px;"></select>
+        <button id="anim-toggle" class="btn-primary">Pause</button>
+    </div>
+
+    <div id="notification">
+        <span id="notif-text"></span>
+        <div id="notif-options" style="display:flex; gap:10px; align-items:center;">
+            <input type="number" id="custom-scale-val" value="2.0" step="0.1" style="width: 50px; background: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;"> 
+            <button id="notif-btn" class="btn-primary" style="width:auto; padding: 4px 10px;">Apply</button>
+            <button id="notif-cancel" class="btn-primary" style="width:auto; padding: 4px 10px; background:#444;">Ignore</button>
+        </div>
+    </div>
+
+    <div id="settings-menu">
+        <h3>Viewport Settings</h3>
+        <div class="settings-section">
+            <button id="open-instructions" class="btn-primary" style="margin-bottom: 10px; background: #555;">📋 Instructions</button>
+            <label>Input Mapping</label>
+            <select id="key-preset"><option value="qwerty">QWERTY (WASD)</option><option value="azerty">AZERTY (ZQSD)</option></select>
+        </div>
+        <div class="settings-section">
+            <label>Coordinate Grids</label>
+            <label><input type="checkbox" id="grid-xz" checked> XZ Plane (Floor)</label>
+            <label><input type="checkbox" id="grid-xy"> XY Plane (Front)</label>
+            <label><input type="checkbox" id="grid-yz"> YZ Plane (Side)</label>
+        </div>
+        <div class="settings-section">
+            <label><input type="checkbox" id="toggle-gizmo" checked> 3D Axis Gizmo (1m)</label>
+        </div>
+        <button class="btn-primary" onclick="document.getElementById('settings-menu').style.display='none'">Close</button>
+    </div>
+    <div id="version-tag">v1.1.21-debug</div>
+</div>
+
+<script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+</script>
+
+<script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+    import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
+    import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+    import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
+    import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+    import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+
+    const APP_VERSION = "1.1.21";
+    const ALLOWED_EXT = ['glb', 'gltf', 'obj', 'fbx', 'mtl', 'png', 'jpg', 'jpeg'];
+    const debugLog = (ctx, msg) => console.log(`[${new Date().toLocaleTimeString()}] [${ctx}] ${msg}`);
+
+    let scene, camera, renderer, composer, outlinePass, clock;
+    let selectedObject = null, selectionGizmo = null;
+    let selectableObjects = [];
+    let isLocked = false, uniformScale = true;
+    let grids = {}, gizmo, keys = { f: 'w', l: 'a', b: 's', r: 'd' }, controls = { forward: false, left: false, backward: false, right: false };
+
+    let mixers = new Map();
+    let skeletonHelpers = new Map();
+    let targetScale = new THREE.Vector3(1, 1, 1);
+    let cameraTargetPos = null, cameraTargetLookAt = null;
+    let isDragging = false, dragConstraint = null, dragPlane = new THREE.Plane(), dragOffset = new THREE.Vector3(), dragIntersection = new THREE.Vector3();
+
+    init();
+    animate();
+
+    function init() {
+        debugLog("System", `Initializing v${APP_VERSION}`);
+        scene = new THREE.Scene();
+        clock = new THREE.Clock();
+        const container = document.getElementById('viewport-container');
+
+        camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.01, 5000);
+        camera.rotation.z = 0;
+        camera.rotation.order = 'YXZ'; 
+        camera.position.set(5, 5, 5);
+        camera.lookAt(0, 0, 0);
+
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(container.clientWidth, container.clientHeight);
+        container.appendChild(renderer.domElement);
+
+        composer = new EffectComposer(renderer);
+        composer.addPass(new RenderPass(scene, camera));
+        outlinePass = new OutlinePass(new THREE.Vector2(container.clientWidth, container.clientHeight), scene, camera);
+        outlinePass.visibleEdgeColor.set(0x007aff);
+        composer.addPass(outlinePass);
+
+        scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 2));
+        const light = new THREE.DirectionalLight(0xffffff, 1);
+        light.position.set(5, 10, 5);
+        scene.add(light);
+
+        selectionGizmo = createAdvancedGizmo();
+        selectionGizmo.visible = false;
+        scene.add(selectionGizmo);
+
+        setupGridsAndGizmo();
+        setupUI();
+        setupInteractions();
+    }
+
+    async function processModelFiles(fileList, dropPos = null) {
+        const files = Array.from(fileList);
+        const objFile = files.find(f => f.name.toLowerCase().endsWith('.obj'));
+        const mtlFile = files.find(f => f.name.toLowerCase().endsWith('.mtl'));
+        
+        if (!objFile) {
+            const singleFile = files.find(f => ['glb', 'gltf', 'fbx'].includes(f.name.split('.').pop().toLowerCase()));
+            if (singleFile) handleFile(singleFile, dropPos);
+            return;
+        }
+
+        debugLog("Loader", `Processing OBJ/MTL group: ${objFile.name}`);
+        const manager = new THREE.LoadingManager();
+        const objectURLs = [];
+        const fileMap = {};
+        files.forEach(file => {
+            const url = URL.createObjectURL(file);
+            fileMap[file.name] = url;
+            objectURLs.push(url);
+        });
+
+        manager.setURLModifier((url) => {
+            const fileName = url.split('/').pop();
+            if (fileMap[fileName]) return fileMap[fileName];
+            return url;
+        });
+
+        const finalize = (obj) => {
+            obj.name = objFile.name;
+            finalizeAdd(obj, dropPos);
+            objectURLs.forEach(url => URL.revokeObjectURL(url));
+        };
+
+        if (mtlFile) {
+            const mtlLoader = new MTLLoader(manager);
+            mtlLoader.load(fileMap[mtlFile.name], (materials) => {
+                materials.preload();
+                const objLoader = new OBJLoader(manager);
+                objLoader.setMaterials(materials);
+                objLoader.load(fileMap[objFile.name], finalize);
+            });
+        } else {
+            const objLoader = new OBJLoader(manager);
+            objLoader.load(fileMap[objFile.name], finalize);
+        }
+    }
+
+    function createAdvancedGizmo() {
+        const group = new THREE.Group();
+        const axes = [{ d:[1,0,0], c:0xff0000, axis:'x' }, { d:[0,1,0], c:0x00ff00, axis:'y' }, { d:[0,0,1], c:0x0000ff, axis:'z' }];
+        axes.forEach(a => {
+            const axisGroup = new THREE.Group();
+            const lMat = new THREE.MeshBasicMaterial({ color: a.c, depthTest: false, transparent: true, opacity: 0.8 });
+            const line = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.8, 8), lMat);
+            line.position.y = 0.4; line.userData.isGizmo = true; line.userData.constraint = a.axis;
+            const head = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.15, 8), lMat);
+            head.position.y = 0.8; head.userData.isGizmo = true; head.userData.constraint = a.axis;
+            axisGroup.add(line, head);
+            if (a.d[0] === 1) axisGroup.rotation.z = -Math.PI/2;
+            if (a.d[2] === 1) axisGroup.rotation.x = Math.PI/2;
+            group.add(axisGroup);
+            const pMat = new THREE.MeshBasicMaterial({ color: a.c, side: THREE.DoubleSide, transparent: true, opacity: 0.3, depthTest: false });
+            const plane = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.2), pMat);
+            plane.userData.isGizmo = true;
+            if (a.axis === 'x') { plane.position.set(0, 0.3, 0.3); plane.rotation.y = Math.PI/2; plane.userData.constraint = 'yz'; }
+            else if (a.axis === 'y') { plane.position.set(0.3, 0, 0.3); plane.rotation.x = Math.PI/2; plane.userData.constraint = 'xz'; }
+            else { plane.position.set(0.3, 0.3, 0); plane.userData.constraint = 'xy'; }
+            group.add(plane);
+        });
+        return group;
+    }
+
+    function setupGridsAndGizmo() {
+        grids.xz = new THREE.GridHelper(20, 20, 0x888888, 0x444444);
+        grids.xy = new THREE.GridHelper(20, 20, 0x888888, 0x444444);
+        grids.xy.rotation.x = Math.PI / 2;
+        grids.yz = new THREE.GridHelper(20, 20, 0x888888, 0x444444);
+        grids.yz.rotation.z = Math.PI / 2;
+        scene.add(grids.xz, grids.xy, grids.yz);
+        grids.xy.visible = grids.yz.visible = false;
+        gizmo = createAdvancedGizmo();
+        scene.add(gizmo);
+    }
+
+    function selectObject(obj) {
+        selectedObject = obj;
+        outlinePass.selectedObjects = obj ? [obj] : [];
+        selectionGizmo.visible = !!obj;
+        updateOutlinerUI();
+        syncUIFromSelection();
+        const inspector = document.getElementById('inspector-window');
+        if (obj) {
+            inspector.style.display = 'block';
+            selectionGizmo.position.copy(obj.position);
+            targetScale.copy(obj.scale);
+            updateAnimUI();
+            
+            let isWire = false, isUnlit = false;
+            obj.traverse(c => {
+                if(c.isMesh && c.material) {
+                    isWire = !!c.material.wireframe;
+                    isUnlit = (c.material.type === 'MeshBasicMaterial');
+                }
+            });
+            document.getElementById('toggle-wireframe').checked = isWire;
+            document.getElementById('toggle-unlit').checked = isUnlit;
+            document.getElementById('toggle-skeleton').checked = skeletonHelpers.has(obj) ? skeletonHelpers.get(obj).visible : false;
+        } else {
+            inspector.style.display = 'none';
+            document.getElementById('anim-controller').style.display = 'none';
+        }
+    }
+
+    function focusObject(obj) {
+        if (!obj) return;
+        const box = new THREE.Box3().setFromObject(obj);
+        const center = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const fov = camera.fov * (Math.PI / 180);
+        let dist = (maxDim / 2) / Math.tan(fov / 4);
+        const angleOffset = new THREE.Vector3(1, 1, 1).normalize().multiplyScalar(dist * 1.5);
+        cameraTargetPos = new THREE.Vector3().addVectors(center, angleOffset);
+        cameraTargetLookAt = center.clone();
+    }
+
+    function updateAnimUI() {
+        const ctrl = document.getElementById('anim-controller');
+        const list = document.getElementById('anim-list');
+        const mixerData = mixers.get(selectedObject);
+        if (mixerData && mixerData.clips.length > 0) {
+            ctrl.style.display = 'block';
+            list.innerHTML = '';
+            mixerData.clips.forEach((clip, i) => {
+                const opt = document.createElement('option');
+                opt.value = i; opt.innerText = clip.name || `Anim ${i}`;
+                list.appendChild(opt);
+            });
+            list.onchange = () => {
+                mixerData.mixer.stopAllAction();
+                const action = mixerData.mixer.clipAction(mixerData.clips[list.value]);
+                action.play();
+                document.getElementById('anim-toggle').innerText = "Pause";
+            };
+        } else {
+            ctrl.style.display = 'none';
+        }
+    }
+
+    function syncUIFromSelection() {
+        if (!selectedObject) return;
+        document.getElementById('pos-x').value = selectedObject.position.x.toFixed(2);
+        document.getElementById('pos-y').value = selectedObject.position.y.toFixed(2);
+        document.getElementById('pos-z').value = selectedObject.position.z.toFixed(2);
+        document.getElementById('rot-x').value = (selectedObject.rotation.x * 180/Math.PI).toFixed(2);
+        document.getElementById('rot-y').value = (selectedObject.rotation.y * 180/Math.PI).toFixed(2);
+        document.getElementById('rot-z').value = (selectedObject.rotation.z * 180/Math.PI).toFixed(2);
+        document.getElementById('scl-x').value = targetScale.x.toFixed(5);
+        document.getElementById('scl-y').value = targetScale.y.toFixed(5);
+        document.getElementById('scl-z').value = targetScale.z.toFixed(5);
+    }
+
+    function updateSelectionTransform() {
+        if (!selectedObject) return;
+        selectedObject.position.set(parseFloat(document.getElementById('pos-x').value), parseFloat(document.getElementById('pos-y').value), parseFloat(document.getElementById('pos-z').value));
+        selectedObject.rotation.set(document.getElementById('rot-x').value * Math.PI/180, document.getElementById('rot-y').value * Math.PI/180, document.getElementById('rot-z').value * Math.PI/180);
+        let sx = Math.max(0.00001, Math.min(1000, parseFloat(document.getElementById('scl-x').value)));
+        if (uniformScale) {
+            targetScale.set(sx, sx, sx);
+            document.getElementById('scl-y').value = sx.toFixed(5);
+            document.getElementById('scl-z').value = sx.toFixed(5);
+        } else {
+            targetScale.set(sx, parseFloat(document.getElementById('scl-y').value), parseFloat(document.getElementById('scl-z').value));
+        }
+        selectionGizmo.position.copy(selectedObject.position);
+    }
+
+    function performPrecisionAutoScale(obj) {
+        if(!obj) return;
+        const box = new THREE.Box3().setFromObject(obj);
+        const size = box.getSize(new THREE.Vector3());
+        const currentHeight = size.y / obj.scale.y; 
+        const targetHeight = parseFloat(document.getElementById('custom-scale-val').value) || 2.0;
+        const factor = targetHeight / currentHeight;
+        targetScale.setScalar(factor);
+        syncUIFromSelection();
+        document.getElementById('notification').style.display = 'none';
+    }
+
+    async function handleFile(file, dropPos = null) {
+        if (!file) return;
+        const ext = file.name.split('.').pop().toLowerCase();
+        if (!ALLOWED_EXT.includes(ext)) return;
+        const url = URL.createObjectURL(file);
+        let loader = ext === 'fbx' ? new FBXLoader() : (ext === 'obj' ? new OBJLoader() : new GLTFLoader());
+        
+        loader.load(url, (res) => {
+            const obj = res.scene || res;
+            obj.name = file.name;
+            obj.traverse(c => { if(c.isSkinnedMesh) c.frustumCulled = false; });
+            if (res.animations && res.animations.length > 0) {
+                const mixer = new THREE.AnimationMixer(obj);
+                mixers.set(obj, { mixer, clips: res.animations });
+                mixer.clipAction(res.animations[0]).play();
+            }
+            obj.scale.set(0.001, 0.001, 0.001);
+            targetScale.set(1, 1, 1);
+            finalizeAdd(obj, dropPos);
+            URL.revokeObjectURL(url);
+        });
+    }
+
+    function finalizeAdd(obj, dropPos) {
+        scene.add(obj);
+        selectableObjects.push(obj);
+        selectObject(obj);
+        updateOutlinerUI();
+
+        if (dropPos) {
+            const notif = document.getElementById('notification');
+            document.getElementById('notif-text').innerText = "Placement Choice:";
+            document.getElementById('notif-options').innerHTML = `
+                <button id="snap-origin" class="btn-primary">Center</button>
+                <button id="snap-drop" class="btn-primary">Dropped Pos</button>
+            `;
+            notif.style.display = 'flex';
+            document.getElementById('snap-origin').onclick = () => { obj.position.set(0,0,0); notif.style.display='none'; checkScaling(obj); };
+            document.getElementById('snap-drop').onclick = () => { obj.position.copy(dropPos); notif.style.display='none'; checkScaling(obj); };
+        } else { 
+            checkScaling(obj); 
+        }
+    }
+
+    function checkScaling(obj) {
+        const box = new THREE.Box3().setFromObject(obj);
+        const size = box.getSize(new THREE.Vector3());
+        if (Math.max(size.x, size.y, size.z) > 50 || Math.max(size.x, size.y, size.z) < 0.1) { triggerScalePrompt(obj); }
+    }
+
+    function triggerScalePrompt(obj) {
+        const notif = document.getElementById('notification');
+        document.getElementById('notif-text').innerText = "Target Height (m):";
+        document.getElementById('notif-options').innerHTML = `
+             <input type="number" id="custom-scale-val" value="2.0" step="0.1" style="width: 50px; background: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;"> 
+             <button id="notif-btn" class="btn-primary" style="width:auto; padding: 4px 10px;">Apply</button>
+             <button id="notif-cancel" class="btn-primary" style="width:auto; padding: 4px 10px; background:#444;">Ignore</button>
+        `;
+        notif.style.display = 'flex';
+        document.getElementById('notif-btn').onclick = () => performPrecisionAutoScale(obj);
+        document.getElementById('notif-cancel').onclick = () => notif.style.display = 'none';
+    }
+
+    function setupUI() {
+        const settingsBtn = document.getElementById('settings-btn');
+        const settingsMenu = document.getElementById('settings-menu');
+        const instrOverlay = document.getElementById('instructions-overlay');
+
+        settingsBtn.onclick = () => {
+            settingsMenu.style.display = settingsMenu.style.display === 'block' ? 'none' : 'block';
+        };
+
+        // Instructions Toggle
+        document.getElementById('open-instructions').onclick = () => {
+            instrOverlay.style.display = 'block';
+            settingsMenu.style.display = 'none';
+        };
+
+        const closeInstr = () => instrOverlay.style.display = 'none';
+        document.getElementById('close-instr').onclick = closeInstr;
+        instrOverlay.onclick = (e) => { if(e.target === instrOverlay) closeInstr(); };
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeInstr();
+        });
+
+        const dz = document.getElementById('drop-zone');
+        const vp = document.getElementById('viewport-container');
+        document.getElementById('file-input').onchange = (e) => processModelFiles(e.target.files);
+
+        dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('dragover'); });
+        dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+        dz.addEventListener('drop', (e) => { e.preventDefault(); dz.classList.remove('dragover'); processModelFiles(e.dataTransfer.files); });
+
+        vp.addEventListener('dragover', (e) => { e.preventDefault(); vp.classList.add('dragover'); });
+        vp.addEventListener('dragleave', () => vp.classList.remove('dragover'));
+        vp.addEventListener('drop', (e) => {
+            e.preventDefault(); vp.classList.remove('dragover');
+            const rect = vp.getBoundingClientRect();
+            const mouse = new THREE.Vector2(((e.clientX - rect.left)/rect.width)*2-1, -((e.clientY-rect.top)/rect.height)*2+1);
+            const ray = new THREE.Raycaster();
+            ray.setFromCamera(mouse, camera);
+            const dropPt = new THREE.Vector3();
+            ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0), 0), dropPt);
+            processModelFiles(e.dataTransfer.files, dropPt);
+        });
+
+        document.getElementById('anim-toggle').onclick = (e) => {
+            const mixerData = mixers.get(selectedObject);
+            if (!mixerData) return;
+            if (e.target.innerText === "Pause") { mixerData.mixer.timeScale = 0; e.target.innerText = "Play"; }
+            else { mixerData.mixer.timeScale = 1; e.target.innerText = "Pause"; }
+        };
+
+        document.getElementById('toggle-wireframe').onchange = (e) => {
+            if(!selectedObject) return;
+            selectedObject.traverse(c => { if(c.isMesh && c.material) { c.material.wireframe = e.target.checked; c.material.needsUpdate = true; } });
+        };
+
+        document.getElementById('toggle-skeleton').onchange = (e) => {
+            if(!selectedObject) return;
+            if(e.target.checked) {
+                const helper = new THREE.SkeletonHelper(selectedObject);
+                scene.add(helper);
+                skeletonHelpers.set(selectedObject, helper);
+            } else {
+                if(skeletonHelpers.has(selectedObject)) {
+                    scene.remove(skeletonHelpers.get(selectedObject));
+                    skeletonHelpers.delete(selectedObject);
+                }
+            }
+        };
+
+        document.getElementById('toggle-unlit').onchange = (e) => {
+            if(!selectedObject) return;
+            selectedObject.traverse(c => {
+                if(c.isMesh && c.material) {
+                    if(e.target.checked) {
+                        if(!c.userData.oldMat) c.userData.oldMat = c.material;
+                        const old = c.material;
+                        c.material = new THREE.MeshBasicMaterial({
+                            color: (old.color && old.color.clone) ? old.color.clone() : new THREE.Color(0xffffff),
+                            map: old.map || null,
+                            wireframe: !!old.wireframe,
+                            transparent: !!old.transparent,
+                            opacity: old.opacity ?? 1
+                        });
+                    } else if(c.userData.oldMat) {
+                        c.material = c.userData.oldMat;
+                        c.userData.oldMat = null;
+                    }
+                }
+            });
+        };
+
+        document.getElementById('toggle-interpolation').onchange = (e) => {
+            const mixerData = mixers.get(selectedObject);
+            if (!mixerData) return;
+            const mode = e.target.checked ? THREE.InterpolateLinear : THREE.InterpolateDiscrete;
+            mixerData.clips.forEach(clip => {
+                clip.tracks.forEach(track => { track.setInterpolation(mode); });
+            });
+        };
+
+        ['pos-x','pos-y','pos-z','rot-x','rot-y','rot-z','scl-x','scl-y','scl-z'].forEach(id => document.getElementById(id).addEventListener('input', updateSelectionTransform));
+        document.getElementById('uniform-scale').onclick = (e) => {
+            uniformScale = !uniformScale;
+            e.target.innerText = `Uniform: ${uniformScale ? 'ON' : 'OFF'}`;
+            e.target.style.background = uniformScale ? '#333' : 'var(--accent)';
+        };
+        document.getElementById('re-scale-btn').onclick = () => { if(selectedObject) triggerScalePrompt(selectedObject); };
+        document.getElementById('selection-opacity').oninput = (e) => {
+            if(!selectedObject) return;
+            selectedObject.traverse(c => { if(c.isMesh && c.material) { c.material.transparent = true; c.material.opacity = e.target.value; } });
+        };
+        
+        document.getElementById('key-preset').onchange = (e) => { 
+            if(e.target.value === 'azerty') keys = { f: 'z', l: 'q', b: 's', r: 'd' };
+            else keys = { f: 'w', l: 'a', b: 's', r: 'd' };
+        };
+
+        document.getElementById('grid-xz').onchange = (e) => grids.xz.visible = e.target.checked;
+        document.getElementById('grid-xy').onchange = (e) => grids.xy.visible = e.target.checked;
+        document.getElementById('grid-yz').onchange = (e) => grids.yz.visible = e.target.checked;
+        document.getElementById('toggle-gizmo').onchange = (e) => gizmo.visible = e.target.checked;
+        document.getElementById('ref-shape').onchange = updateReference;
+
+        document.querySelectorAll('.transform-label').forEach(label => {
+            let scrubbing = false, startX, startVal;
+            label.onmousedown = (e) => {
+                if (!selectedObject) return;
+                scrubbing = true; startX = e.clientX;
+                const typeMap = { position:'pos', rotation:'rot', scale:'scl' };
+                const input = document.getElementById(`${typeMap[label.dataset.type]}-${label.dataset.axis}`);
+                startVal = parseFloat(input.value);
+            };
+            window.addEventListener('mousemove', (e) => {
+                if (!scrubbing) return;
+                let sens = label.dataset.type === 'position' ? 0.05 : 0.5;
+                if (label.dataset.type === 'scale') sens = e.shiftKey ? 0.0001 : 0.01;
+                const input = document.getElementById(`${label.dataset.type === 'position' ? 'pos' : (label.dataset.type === 'rotation' ? 'rot' : 'scl')}-${label.dataset.axis}`);
+                input.value = (startVal + (e.clientX - startX) * sens).toFixed(label.dataset.type === 'scale' ? 5 : 3);
+                updateSelectionTransform();
+            });
+            window.addEventListener('mouseup', () => scrubbing = false);
+        });
+    }
+
+    function setupInteractions() {
+        const canvas = renderer.domElement;
+        const raycaster = new THREE.Raycaster();
+
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouse = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+            raycaster.setFromCamera(mouse, camera);
+
+            if (e.button === 0) {
+                const gizmoHits = raycaster.intersectObjects(selectionGizmo.children, true);
+                if (gizmoHits.length > 0) {
+                    isDragging = true;
+                    dragConstraint = gizmoHits[0].object.userData.constraint;
+                    if (dragConstraint === 'x' || dragConstraint === 'z' || dragConstraint === 'xz') dragPlane.set(new THREE.Vector3(0, 1, 0), -selectedObject.position.y);
+                    else if (dragConstraint === 'y' || dragConstraint === 'xy') dragPlane.set(new THREE.Vector3(0, 0, 1), -selectedObject.position.z);
+                    else if (dragConstraint === 'yz') dragPlane.set(new THREE.Vector3(1, 0, 0), -selectedObject.position.x);
+                    raycaster.ray.intersectPlane(dragPlane, dragOffset);
+                    dragOffset.sub(selectedObject.position);
+                    return;
+                }
+                const hits = raycaster.intersectObjects(selectableObjects, true);
+                if (hits.length > 0) {
+                    let clicked = hits[0].object;
+                    while (clicked.parent && !selectableObjects.includes(clicked)) clicked = clicked.parent;
+                    selectObject(clicked);
+                    if (e.ctrlKey) {
+                        isDragging = true; dragConstraint = 'xz';
+                        dragPlane.set(new THREE.Vector3(0, 1, 0), -selectedObject.position.y);
+                        raycaster.ray.intersectPlane(dragPlane, dragOffset);
+                        dragOffset.sub(selectedObject.position);
+                    }
+                } else { selectObject(null); }
+            }
+            if (e.button === 2) { canvas.requestPointerLock(); isLocked = true; }
+        });
+
+        canvas.addEventListener('dblclick', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouse = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+            raycaster.setFromCamera(mouse, camera);
+            const hits = raycaster.intersectObjects(selectableObjects, true);
+            if (hits.length > 0) {
+                let clicked = hits[0].object;
+                while (clicked.parent && !selectableObjects.includes(clicked)) clicked = clicked.parent;
+                focusObject(clicked);
+            }
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (isDragging && selectedObject) {
+                const rect = canvas.getBoundingClientRect();
+                const mouse = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+                raycaster.setFromCamera(mouse, camera);
+                if (raycaster.ray.intersectPlane(dragPlane, dragIntersection)) {
+                    const nextPos = dragIntersection.clone().sub(dragOffset);
+                    if (dragConstraint === 'x') selectedObject.position.x = nextPos.x;
+                    else if (dragConstraint === 'y') selectedObject.position.y = nextPos.y;
+                    else if (dragConstraint === 'z') selectedObject.position.z = nextPos.z;
+                    else if (dragConstraint === 'xz') { selectedObject.position.x = nextPos.x; selectedObject.position.z = nextPos.z; }
+                    else if (dragConstraint === 'xy') { selectedObject.position.x = nextPos.x; selectedObject.position.y = nextPos.y; }
+                    else if (dragConstraint === 'yz') { selectedObject.position.y = nextPos.y; selectedObject.position.z = nextPos.z; }
+                    selectionGizmo.position.copy(selectedObject.position);
+                    syncUIFromSelection();
+                }
+                return;
+            }
+            if (isLocked) {
+                camera.rotation.y -= e.movementX * 0.002;
+                camera.rotation.x -= e.movementY * 0.002;
+                camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x));
+                camera.rotation.z = 0; 
+                cameraTargetPos = null;
+            }
+        });
+
+        window.addEventListener('mouseup', () => { isDragging = false; dragConstraint = null; if (isLocked) { document.exitPointerLock(); isLocked = false; } });
+        window.addEventListener('wheel', (e) => {
+            if (!selectedObject) return;
+            const factor = e.shiftKey ? 0.001 : 0.05;
+            const res = e.deltaY > 0 ? (1 - factor) : (1 + factor);
+            const nextX = Math.max(0.00001, Math.min(1000, targetScale.x * res));
+            if (uniformScale) targetScale.setScalar(nextX);
+            else {
+                 targetScale.x = nextX;
+                 targetScale.y = Math.max(0.00001, Math.min(1000, targetScale.y * res));
+                 targetScale.z = Math.max(0.00001, Math.min(1000, targetScale.z * res));
+            }
+            syncUIFromSelection();
+        });
+
+        window.onkeydown = (e) => {
+            const k = e.key.toLowerCase();
+            if (e.key === 'Delete' && selectedObject) {
+                scene.remove(selectedObject);
+                mixers.delete(selectedObject);
+                if(skeletonHelpers.has(selectedObject)) { scene.remove(skeletonHelpers.get(selectedObject)); skeletonHelpers.delete(selectedObject); }
+                selectableObjects = selectableObjects.filter(o => o !== selectedObject);
+                selectObject(null);
+                updateOutlinerUI();
+            }
+            if (isLocked) {
+                if (k === keys.f) controls.forward = true; 
+                if (k === keys.l) controls.left = true;
+                if (k === keys.b) controls.backward = true; 
+                if (k === keys.r) controls.right = true;
+                cameraTargetPos = null;
+            }
+            if (selectedObject && !isDragging) {
+                const step = e.shiftKey ? 0.00001 : 0.05;
+                if (e.key === 'ArrowUp') targetScale.addScalar(step);
+                if (e.key === 'ArrowDown') targetScale.subScalar(step);
+                targetScale.clampScalar(0.00001, 1000);
+                syncUIFromSelection();
+            }
+        };
+        window.onkeyup = (e) => {
+            const k = e.key.toLowerCase();
+            if (k === keys.f) controls.forward = false; 
+            if (k === keys.l) controls.left = false;
+            if (k === keys.b) controls.backward = false; 
+            if (k === keys.r) controls.right = false;
+        };
+    }
+
+    function updateOutlinerUI() {
+        const list = document.getElementById('model-list');
+        list.innerHTML = '';
+        selectableObjects.forEach(obj => {
+            const li = document.createElement('li');
+            li.innerText = obj.name;
+            if (selectedObject === obj) li.classList.add('selected');
+            li.onclick = () => selectObject(obj);
+            li.ondblclick = () => focusObject(obj);
+            list.appendChild(li);
+        });
+    }
+
+    function updateReference() {
+        const shape = document.getElementById('ref-shape').value;
+        const existingRef = selectableObjects.find(o => o.userData.isRef);
+        if (existingRef) { scene.remove(existingRef); selectableObjects = selectableObjects.filter(o => o !== existingRef); }
+        if (shape === 'none') return;
+        let geo = shape === 'cube' ? new THREE.BoxGeometry(1, 1, 1) : shape === 'sphere' ? new THREE.SphereGeometry(0.5, 32, 32) : new THREE.PlaneGeometry(5, 5);
+        const ref = new THREE.Mesh(geo, new THREE.MeshPhongMaterial({ color: 0x007aff, transparent: true, opacity: 0.5 }));
+        ref.name = `Ref_${shape}`; ref.userData.isRef = true;
+        scene.add(ref); selectableObjects.push(ref); selectObject(ref); updateOutlinerUI();
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        const delta = clock.getDelta();
+        mixers.forEach(m => m.mixer.update(delta));
+
+        selectableObjects.forEach(obj => {
+            const target = (obj === selectedObject) ? targetScale : obj.scale;
+            obj.scale.lerp(target, 0.15);
+            if (obj.scale.distanceTo(target) < 0.001) obj.scale.copy(target);
+        });
+
+        if (cameraTargetPos && cameraTargetLookAt) {
+            camera.position.lerp(cameraTargetPos, 0.1);
+            camera.lookAt(cameraTargetLookAt);
+            camera.rotation.z = 0;
+            if (camera.position.distanceTo(cameraTargetPos) < 0.05) {
+                cameraTargetPos = null; cameraTargetLookAt = null;
+            }
+        }
+
+        if (isLocked) {
+            const speed = 0.15;
+            if (controls.forward) camera.translateZ(-speed); if (controls.backward) camera.translateZ(speed);
+            if (controls.left) camera.translateX(-speed); if (controls.right) camera.translateX(speed);
+        }
+        composer.render();
+    }
+
+    window.onresize = () => {
+        const c = document.getElementById('viewport-container');
+        camera.aspect = c.clientWidth / c.clientHeight; camera.updateProjectionMatrix();
+        renderer.setSize(c.clientWidth, c.clientHeight); composer.setSize(c.clientWidth, c.clientHeight);
+    };
+</script>
+</body>
+</html>
